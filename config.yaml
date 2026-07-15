@@ -3,9 +3,9 @@
 # =====================================================================
 
 # Pipeline mode:
-#   podcast  -> two-speaker interviews; camera rotates between host/guest
-#   general  -> any long-form video; auto face-tracking (or center crop)
-mode: podcast
+#   general  -> any video; auto face-tracking crop (best default)
+#   podcast  -> two-speaker interviews; auto-calibrated host/guest framing
+mode: general
 
 # Subtitle / transcript language (yt-dlp sub-langs)
 language: en
@@ -24,6 +24,8 @@ reframe:
   height: 1920            # vertical output height (9:16)
 
   # ---- podcast mode ----
+  podcast_calibrate: true   # auto-detect the two speaker positions from the clip
+                            # (false = use the fixed positions in speakers.json)
   primary_speaker: guest
   secondary_speaker: host
   primary_duration: "3-4"   # seconds focused on primary before switching
@@ -35,5 +37,20 @@ reframe:
   sample_fps: 3           # frames per second sampled for face detection
 
 captions:
-  default_style: 1        # 1 TikTok Classic | 2 Word Pop | 3 Podcast Modern | 4 Word-by-Word
-  font: ""                # optional: absolute path to a .ttf/.otf font
+  # Style presets:
+  #   1 TikTok Classic | 2 Word Pop | 3 Podcast Modern | 4 Word-by-Word
+  #   5 Highlight Karaoke | 6 Bold Yellow | 7 Neon | 8 Boxed Bar
+  default_style: 1
+
+  # --- overrides (leave blank / 0 / -1 to keep the preset's value) ---
+  font: ""                # font family name (e.g. "Montserrat") OR path to a .ttf/.otf
+  size: 0                 # base font size in px (0 = preset default)
+  primary_color: ""       # text color   hex "#RRGGBB" or "#RRGGBBAA" (AA = opacity)
+  outline_color: ""       # outline/border color
+  box_color: ""           # background box color (styles 2, 8)
+  highlight_color: ""     # active-word color (style 5 karaoke)
+  outline_width: -1       # border thickness (-1 = preset default)
+  position: ""            # bottom | center | top   (blank = preset default)
+  bold:                   # true / false  (blank = preset default)
+  uppercase: false        # ALL CAPS captions
+  margin_pct: 8           # side + bottom safe margin as % of width (overflow guard)

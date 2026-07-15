@@ -3,4 +3,5 @@
 
 yt-dlp>=2024.1.0        # transcript + video download
 PyYAML>=6.0             # config.yaml parsing
-opencv-python>=4.8.0    # general-mode auto face tracking (step 5)
+opencv-python>=4.8,<5   # general-mode auto face tracking (step 5)
+                        # pinned to 4.x: OpenCV 5.0 dropped cv2.CascadeClassifier

@@ -131,7 +131,15 @@ def require_tool(name, hint=""):
 
 
 def run(cmd, **kwargs):
-    """Run a subprocess, streaming output. Returns the CompletedProcess."""
+    """Run a subprocess, streaming output. Returns the CompletedProcess.
+
+    Resolves a bare executable name (e.g. 'ffmpeg', 'yt-dlp') via which() so the
+    call still works when the .venv isn't activated.
+    """
+    if cmd and not os.path.dirname(str(cmd[0])):
+        resolved = which(str(cmd[0]))
+        if resolved:
+            cmd = [resolved] + list(cmd[1:])
     log("$ " + " ".join(str(c) for c in cmd))
     return subprocess.run(cmd, **kwargs)
 

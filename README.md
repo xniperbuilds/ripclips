@@ -11,9 +11,10 @@ No paid clipping subscription. No per-clip AI API key. Just `yt-dlp` + `FFmpeg` 
 - **End-to-end automation** — one YouTube URL in, upload-ready vertical clips out.
 - **Smart moment detection** — the agent reads the transcript and picks the strongest, most clip-worthy moments (no external sentiment API).
 - **Two reframe modes**
-  - **Podcast** — rotates the crop between two speakers (host/guest) for that classic interview-clip feel.
-  - **General** — auto face-tracking follows the dominant speaker in any video; centers cleanly when no face is found.
-- **4 caption styles** — TikTok Classic, Word Pop, Podcast Modern, and viral Word-by-Word karaoke.
+  - **General** (default) — auto face-tracking follows the dominant speaker in any video; centers cleanly when no face is found.
+  - **Podcast** — rotates the crop between two speakers, whose positions are **auto-detected from the clip** (or fixed manually) for that classic interview-clip feel.
+- **8 caption styles** — TikTok Classic, Word Pop, Podcast Modern, Word-by-Word, Highlight Karaoke, Bold Yellow, Neon, Boxed Bar — each fully customizable (font, size, colors, position, uppercase). Captions auto-wrap so text never runs off-screen.
+- **Resilient downloads** — auto-retries YouTube's "confirm you're not a bot" gate with alternate clients.
 - **Vertical 1080×1920** output, subtitles baked in.
 - **Cross-platform** — Windows, macOS, Linux. One-command setup.
 - **Config-driven** — quality, mode, framing, and caption style all live in `config.yaml`.
@@ -82,18 +83,28 @@ python 6_captions/burn_subtitles.py --style 1
 ## ⚙️ Configuration (`config.yaml`)
 
 ```yaml
-mode: podcast            # podcast | general
+mode: general            # general (default) | podcast
 download: { max_height: 1080 }
 clip:    { encode_mode: reencode }
 reframe:
-  primary_speaker: guest
-  secondary_speaker: host
   detector: opencv       # opencv (auto face-track) | center
+  podcast_calibrate: true  # auto-detect the two speaker positions
 captions:
-  default_style: 1       # 1 Classic | 2 Word Pop | 3 Podcast Modern | 4 Word-by-Word
+  default_style: 1       # 1-8 (see below)
+  font: ""               # font family name or .ttf path
+  size: 0                # 0 = preset default
+  primary_color: ""      # e.g. "#FFE94A"
+  outline_color: ""
+  uppercase: false
+  margin_pct: 8          # safe side/bottom margin (overflow guard)
 ```
 
-**Podcast framing:** tune `5_reframe/speakers.json` — `x` is each speaker's crop center (0=left, 1=right). Preview with `python 5_reframe/reframe.py --dry-run`.
+Every caption value can also be set per-run via CLI flags, e.g.:
+```bash
+python 6_captions/burn_subtitles.py --style 6 --font "Montserrat" --size 84 --color "#FFE94A" --uppercase
+```
+
+**Podcast framing:** by default the two speakers are auto-detected. To set them by hand, put `podcast_calibrate: false` and tune `5_reframe/speakers.json` (`x` = crop center, 0=left, 1=right). Preview with `python 5_reframe/reframe.py --dry-run`.
 
 ---
 
@@ -105,6 +116,12 @@ captions:
 | 2 | Word Pop | Yellow on a dark box |
 | 3 | Podcast Modern | Clean white, soft shadow |
 | 4 | Word-by-Word | One word at a time (karaoke) |
+| 5 | Highlight Karaoke | Full line stays, spoken word lights up |
+| 6 | Bold Yellow | Big punchy yellow, thick outline |
+| 7 | Neon | Bright cyan with dark outline |
+| 8 | Boxed Bar | White text on a solid color bar |
+
+All styles honor the `captions:` overrides (font, size, colors, position, uppercase, margins).
 
 ---
 

@@ -22,6 +22,27 @@ def build_format(max_h):
     )
 
 
+# Alternate player clients that bypass YouTube's "confirm you're not a bot" gate.
+CLIENT_FALLBACKS = ["default", "android", "tv_embedded,android", "web_safari,android"]
+
+
+def _has_video():
+    return any(rc.DOWNLOAD_DIR.glob("*.mp4"))
+
+
+def _yt_dlp_video(url, max_h, client, out_tmpl):
+    cmd = [
+        "yt-dlp",
+        "-f", build_format(max_h),
+        "--merge-output-format", "mp4",
+        "-o", out_tmpl,
+    ]
+    if client != "default":
+        cmd += ["--extractor-args", "youtube:player_client=%s" % client]
+    cmd += [url]
+    return rc.run(cmd)
+
+
 def main():
     if len(sys.argv) < 2:
         rc.die('usage: python 3_download/download_video.py "YOUTUBE_URL"')
@@ -34,17 +55,19 @@ def main():
     rc.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     out_tmpl = str(rc.DOWNLOAD_DIR / "%(title).120B [%(id)s].%(ext)s")
-    cmd = [
-        "yt-dlp",
-        "-f", build_format(max_h),
-        "--merge-output-format", "mp4",
-        "-o", out_tmpl,
-        url,
-    ]
     rc.log("Downloading source video (<=%dp) ..." % max_h)
-    result = rc.run(cmd)
-    if result.returncode != 0:
-        rc.die("yt-dlp download failed (exit %s)." % result.returncode)
+    downloaded = False
+    for client in CLIENT_FALLBACKS:
+        if client != "default":
+            rc.log("   retrying download with player_client=%s ..." % client)
+        result = _yt_dlp_video(url, max_h, client, out_tmpl)
+        if result.returncode == 0 and _has_video():
+            downloaded = True
+            break
+    if not downloaded and not _has_video():
+        rc.die("yt-dlp download failed - YouTube may be blocking this network/IP. "
+               "Try again later, or export browser cookies to cookies.txt and "
+               "add:  --cookies cookies.txt")
 
     video = rc.find_source_video()
     size_mb = video.stat().st_size / (1024 * 1024)

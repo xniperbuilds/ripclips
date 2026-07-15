@@ -44,9 +44,13 @@ YouTube URL
 | 5 | `5_reframe/` | `reframe.directive.md` | Reframe to vertical 1080x1920 | `5_reframe/vertical_clips/clip_XX.mp4` |
 | 6 | `6_captions/` | `subtitle_burn.directive.md` | Burn styled captions | `6_captions/captioned_clips/clip_XX.mp4` |
 
-**Modes** (set `mode:` in `config.yaml`):
-- `podcast` - two-speaker interviews; the crop rotates between host and guest (`speakers.json`).
+**Modes** (set `mode:` in `config.yaml`; default `general`):
 - `general` - any video; auto face-tracking follows the dominant face, or centers when none is found.
+- `podcast` - two-speaker interviews; the crop rotates between the two speakers, whose positions are auto-detected from the clip (or fixed in `speakers.json` when `podcast_calibrate: false`).
+
+**Caption styles** (step 6, `--style N`): 1 TikTok Classic, 2 Word Pop, 3 Podcast Modern, 4 Word-by-Word, 5 Highlight Karaoke, 6 Bold Yellow, 7 Neon, 8 Boxed Bar. All are customizable under `config.yaml -> captions:` (font, size, colours, position, bold, uppercase, margins).
+
+**YouTube bot gate:** if a plain `yt-dlp` call is blocked with "Sign in to confirm you're not a bot", steps 1 and 3 automatically retry with alternate `--extractor-args youtube:player_client=...` clients. No action needed; if all retries fail the step reports it.
 
 ---
 

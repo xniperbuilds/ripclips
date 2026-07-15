@@ -17,20 +17,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import ripclips_common as rc  # noqa: E402
 
 
-def download_subs(url, lang):
-    rc.require_tool("yt-dlp")
-    out_tmpl = str(rc.TRANSCRIPT_DIR / "%(title).120B [%(id)s].%(ext)s")
+# YouTube increasingly gates the default web client behind "Sign in to confirm
+# you're not a bot". These alternate player clients usually bypass that for
+# subtitle + video fetches. We try the default first, then fall back.
+CLIENT_FALLBACKS = ["default", "tv_embedded,android", "android", "web_safari,android"]
+
+
+def _yt_dlp_subs(url, lang, client, out_tmpl):
     cmd = [
         "yt-dlp", "--skip-download",
         "--write-subs", "--write-auto-subs",
         "--sub-langs", "%s.*" % lang,
         "--convert-subs", "srt",
         "-o", out_tmpl,
-        url,
     ]
-    result = rc.run(cmd)
-    if result.returncode != 0:
-        rc.die("yt-dlp failed to fetch subtitles (exit %s)." % result.returncode)
+    if client != "default":
+        cmd += ["--extractor-args", "youtube:player_client=%s" % client]
+    cmd += [url]
+    return rc.run(cmd)
+
+
+def download_subs(url, lang):
+    rc.require_tool("yt-dlp")
+    out_tmpl = str(rc.TRANSCRIPT_DIR / "%(title).120B [%(id)s].%(ext)s")
+    for client in CLIENT_FALLBACKS:
+        if client != "default":
+            rc.log("   retrying subtitle fetch with player_client=%s ..." % client)
+        result = _yt_dlp_subs(url, lang, client, out_tmpl)
+        if result.returncode == 0 and newest_srt() is not None:
+            return
+    if newest_srt() is not None:      # something landed despite a nonzero exit
+        return
+    rc.die("yt-dlp could not fetch subtitles - YouTube may be blocking this "
+           "network/IP. Try again later, or export browser cookies to a "
+           "cookies.txt and add:  --cookies cookies.txt")
 
 
 def newest_srt():

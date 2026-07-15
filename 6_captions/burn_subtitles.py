@@ -5,9 +5,14 @@ final upload-ready clips.
 Reads the .srt from step 1, trims + offsets cues to each clip's time window
 (from step 2), builds a styled .ass, and burns it in with FFmpeg.
 
+Captions are fully customizable via config.yaml -> captions: (font, size,
+colors, position, bold, uppercase, margins) on top of 8 built-in style presets.
+
 Usage:
     python 6_captions/burn_subtitles.py --style 1
-    python 6_captions/burn_subtitles.py --style 4 --clip 2
+    python 6_captions/burn_subtitles.py --style 5 --clip 2
+    python 6_captions/burn_subtitles.py --style 1 --font "Montserrat" --size 84 \
+        --color "#FFE94A" --uppercase
 """
 
 import argparse
@@ -21,6 +26,63 @@ import ripclips_common as rc  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
+# Style presets  (mode: line = whole cue | word = one word | karaoke = line
+# stays, active word highlighted).  Colors are plain hex; converted to ASS.
+# ---------------------------------------------------------------------------
+
+PRESETS = {
+    1: {  # TikTok Classic - bold white, thick black outline
+        "name": "TikTok Classic", "font": "Arial", "size": 72,
+        "primary": "#FFFFFF", "outline": "#000000", "outline_w": 5,
+        "shadow": 0, "bold": True, "box": False, "position": "bottom",
+        "mode": "line",
+    },
+    2: {  # Word Pop - yellow text on a dark box
+        "name": "Word Pop", "font": "Arial", "size": 64,
+        "primary": "#FFE31A", "outline": "#000000", "outline_w": 6,
+        "shadow": 0, "bold": True, "box": True, "box_color": "#000000CC",
+        "position": "bottom", "mode": "line",
+    },
+    3: {  # Podcast Modern - clean white, soft drop shadow
+        "name": "Podcast Modern", "font": "Arial", "size": 60,
+        "primary": "#FFFFFF", "outline": "#202020", "outline_w": 1,
+        "shadow": 3, "bold": False, "box": False, "position": "bottom",
+        "mode": "line",
+    },
+    4: {  # Word-by-Word - big bold karaoke, one word at a time
+        "name": "Word-by-Word", "font": "Arial", "size": 104,
+        "primary": "#FFFFFF", "outline": "#000000", "outline_w": 6,
+        "shadow": 0, "bold": True, "box": False, "position": "center",
+        "mode": "word",
+    },
+    5: {  # Highlight Karaoke - line stays, active word lights up
+        "name": "Highlight Karaoke", "font": "Arial", "size": 74,
+        "primary": "#FFFFFF", "outline": "#000000", "outline_w": 5,
+        "shadow": 0, "bold": True, "box": False, "highlight": "#FFE31A",
+        "position": "bottom", "mode": "karaoke",
+    },
+    6: {  # Bold Yellow - big punchy yellow, thick outline
+        "name": "Bold Yellow", "font": "Arial", "size": 86,
+        "primary": "#FFE31A", "outline": "#000000", "outline_w": 7,
+        "shadow": 0, "bold": True, "box": False, "position": "bottom",
+        "mode": "line",
+    },
+    7: {  # Neon - bright cyan with dark outline
+        "name": "Neon", "font": "Arial", "size": 74,
+        "primary": "#22FFE7", "outline": "#062A2A", "outline_w": 5,
+        "shadow": 2, "bold": True, "box": False, "position": "bottom",
+        "mode": "line",
+    },
+    8: {  # Boxed Bar - white text on a solid brand-purple bar
+        "name": "Boxed Bar", "font": "Arial", "size": 62,
+        "primary": "#FFFFFF", "outline": "#6D28D9", "outline_w": 10,
+        "shadow": 0, "bold": True, "box": True, "box_color": "#6D28D9E6",
+        "position": "bottom", "mode": "line",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # SRT parsing
 # ---------------------------------------------------------------------------
 
@@ -31,7 +93,6 @@ _SRT_TIME = re.compile(
 
 def parse_srt(path):
     cues = []
-    block = []
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         content = fh.read()
     for chunk in re.split(r"\n\s*\n", content):
@@ -56,8 +117,8 @@ def parse_srt(path):
                + int(m.group(7)) + int(m.group(8)) / 1000.0)
         text = " ".join(text_lines)
         text = re.sub(r"<[^>]+>", "", text)          # html tags
-        text = re.sub(r"\{\\[^}]*\}", "", text)       # ass overrides
-        text = text.strip()
+        text = re.sub(r"\{\\[^}]*\}", "", text)       # stray ass overrides
+        text = re.sub(r"\s+", " ", text).strip()
         if text and end > start:
             cues.append([start, end, text])
     return cues
@@ -78,7 +139,7 @@ def window_cues(cues, clip_start, clip_end):
 
 
 def split_words(cues):
-    """Style 4: one word at a time, dividing each cue's duration equally."""
+    """word mode: one word at a time, dividing each cue's duration equally."""
     out = []
     for s, e, t in cues:
         words = t.split()
@@ -91,8 +152,33 @@ def split_words(cues):
 
 
 # ---------------------------------------------------------------------------
-# ASS building
+# Color + ASS helpers
 # ---------------------------------------------------------------------------
+
+def _hex_parts(h):
+    """'#RGB' / '#RRGGBB' / '#RRGGBBAA' -> (r, g, b, opacity 0..255)."""
+    h = (h or "").strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) == 6:
+        h += "FF"                      # opaque
+    if len(h) != 8:
+        raise ValueError("bad color: %r" % h)
+    r, g, b, a = (int(h[i:i + 2], 16) for i in (0, 2, 4, 6))
+    return r, g, b, a
+
+
+def ass_color(h):
+    """Hex -> ASS &HAABBGGRR (alpha inverted: opaque hex FF -> ass 00)."""
+    r, g, b, a = _hex_parts(h)
+    return "&H%02X%02X%02X%02X" % (255 - a, b, g, r)
+
+
+def inline_c(h):
+    """Hex -> inline \\c override &HBBGGRR& (no alpha)."""
+    r, g, b, _ = _hex_parts(h)
+    return "&H%02X%02X%02X&" % (b, g, r)
+
 
 def ass_time(sec):
     if sec < 0:
@@ -112,31 +198,77 @@ def ass_escape(text):
             .replace("\\", "/").replace("\n", "\\N"))
 
 
-# style -> V4+ Style line fields (colours are ASS &HAABBGGRR)
-def style_def(style, font):
-    fn = font or "Arial"
+_ALIGN = {"bottom": 2, "center": 5, "middle": 5, "top": 8}
+
+
+# ---------------------------------------------------------------------------
+# Resolve preset + config/CLI overrides into one property dict
+# ---------------------------------------------------------------------------
+
+def resolve_style(style, cfg, cli):
+    props = dict(PRESETS.get(style, PRESETS[1]))
+    cap = cfg.get("captions", {}) or {}
+
+    def pick(cli_val, cfg_key, prop_key, cast=lambda x: x):
+        if cli_val not in (None, ""):
+            props[prop_key] = cast(cli_val)
+        elif cap.get(cfg_key) not in (None, "", 0):
+            props[prop_key] = cast(cap.get(cfg_key))
+
+    pick(cli.get("font"), "font", "font")
+    pick(cli.get("size"), "size", "size", int)
+    pick(cli.get("color"), "primary_color", "primary")
+    pick(None, "outline_color", "outline")
+    pick(None, "box_color", "box_color")
+    pick(None, "highlight_color", "highlight")
+    pick(None, "position", "position")
+    if cli.get("outline_w") is not None:
+        props["outline_w"] = int(cli["outline_w"])
+    elif cap.get("outline_width", -1) not in (None, -1):
+        props["outline_w"] = int(cap["outline_width"])
+    if cap.get("bold") is not None:
+        props["bold"] = bool(cap["bold"])
+    props["uppercase"] = bool(cli.get("uppercase") or cap.get("uppercase", False))
+    props["margin_pct"] = float(cap.get("margin_pct", 8) or 8)
+    return props
+
+
+def maybe_upper(text, props):
+    return text.upper() if props.get("uppercase") else text
+
+
+# ---------------------------------------------------------------------------
+# ASS building
+# ---------------------------------------------------------------------------
+
+def style_line(props, width):
+    fn = props.get("font") or "Arial"
+    size = int(props.get("size", 72))
+    primary = ass_color(props.get("primary", "#FFFFFF"))
+    box = bool(props.get("box"))
+    border_style = 3 if box else 1
+    outline_col = ass_color(props.get("box_color", "#000000CC") if box
+                            else props.get("outline", "#000000"))
+    back_col = ass_color("#000000A0")          # shadow
+    bold = -1 if props.get("bold", True) else 0
+    outline_w = props.get("outline_w", 5)
+    shadow = props.get("shadow", 0)
+    align = _ALIGN.get(props.get("position", "bottom"), 2)
+    margin = int(width * props.get("margin_pct", 8) / 100.0)
     # Name,Fontname,Fontsize,Primary,Secondary,Outline,Back,Bold,Italic,Under,
     # Strike,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Align,
     # MarginL,MarginR,MarginV,Encoding
-    if style == 1:      # TikTok Classic - bold white, thick black outline
-        return ("Default,%s,72,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
-                "-1,0,0,0,100,100,0,0,1,5,0,2,60,60,300,1" % fn)
-    if style == 2:      # Word Pop - yellow on dark box
-        return ("Default,%s,66,&H0000FFFF,&H000000FF,&H9E000000,&H00000000,"
-                "-1,0,0,0,100,100,0,0,3,10,0,2,80,80,320,1" % fn)
-    if style == 3:      # Podcast Modern - clean white, soft shadow
-        return ("Default,%s,62,&H00FFFFFF,&H000000FF,&H00202020,&H96000000,"
-                "0,0,0,0,100,100,0,0,1,1,3,2,80,80,300,1" % fn)
-    # style 4          # Word-by-Word - big bold karaoke pop
-    return ("Default,%s,108,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
-            "-1,0,0,0,100,100,0,0,1,6,0,2,60,60,650,1" % fn)
+    return ("Default,%s,%d,%s,&H000000FF,%s,%s,%d,0,0,0,100,100,0,0,%d,%d,%d,"
+            "%d,%d,%d,%d,1"
+            % (fn, size, primary, outline_col, back_col, bold, border_style,
+               outline_w, shadow, align, margin, margin, margin))
 
 
-def build_ass(cues, style, font, width, height):
+def build_ass(cues, props, width, height):
     head = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
-        "PlayResX: %d\nPlayResY: %d\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n"
+        "PlayResX: %d\nPlayResY: %d\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n"
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
@@ -145,12 +277,51 @@ def build_ass(cues, style, font, width, height):
         "Style: %s\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
-        "Effect, Text\n" % (width, height, style_def(style, font))
+        "Effect, Text\n" % (width, height, style_line(props, width))
     )
     body = []
     for s, e, t in cues:
         body.append("Dialogue: 0,%s,%s,Default,,0,0,0,,%s"
-                     % (ass_time(s), ass_time(e), ass_escape(t)))
+                     % (ass_time(s), ass_time(e), ass_escape(maybe_upper(t, props))))
+    return head + "\n".join(body) + "\n"
+
+
+def build_ass_karaoke(cues, props, width, height):
+    """Line stays visible; the active word is recolored per time slice."""
+    hi = inline_c(props.get("highlight", "#FFE31A"))
+    base = inline_c(props.get("primary", "#FFFFFF"))
+    events = []
+    for s, e, text in cues:
+        words = text.split()
+        if not words:
+            continue
+        step = (e - s) / len(words)
+        for i in range(len(words)):
+            parts = []
+            for j, w in enumerate(words):
+                w = maybe_upper(w, props)
+                if j == i:
+                    parts.append("{\\c%s}%s{\\c%s}" % (hi, ass_escape(w), base))
+                else:
+                    parts.append(ass_escape(w))
+            events.append([s + i * step, s + (i + 1) * step, " ".join(parts)])
+
+    head = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        "PlayResX: %d\nPlayResY: %d\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        "Style: %s\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
+        "Effect, Text\n" % (width, height, style_line(props, width))
+    )
+    body = ["Dialogue: 0,%s,%s,Default,,0,0,0,,%s"
+            % (ass_time(s), ass_time(e), t) for s, e, t in events]
     return head + "\n".join(body) + "\n"
 
 
@@ -177,20 +348,31 @@ def burn(clip, ass_path, out_path, font_dir=None):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--style", type=int, choices=[1, 2, 3, 4], default=None)
+    ap = argparse.ArgumentParser(description="Burn styled captions into clips.")
+    ap.add_argument("--style", type=int, choices=list(PRESETS.keys()), default=None)
     ap.add_argument("--clip", type=int, default=None)
+    ap.add_argument("--font", default=None, help="font family name or .ttf path")
+    ap.add_argument("--size", type=int, default=None, help="base font size")
+    ap.add_argument("--color", default=None, help="text color hex, e.g. #FFE94A")
+    ap.add_argument("--outline-w", dest="outline_w", type=int, default=None)
+    ap.add_argument("--uppercase", action="store_true")
     args = ap.parse_args()
 
     cfg = rc.load_config()
     style = args.style or int(cfg.get("captions", {}).get("default_style", 1))
-    font_cfg = cfg.get("captions", {}).get("font", "") or ""
-    font_name, font_dir = "", None
-    if font_cfg:
-        fp = Path(font_cfg)
-        if fp.exists():
-            font_name = fp.stem
-            font_dir = fp.parent
+    if style not in PRESETS:
+        style = 1
+    cli = {"font": args.font, "size": args.size, "color": args.color,
+           "outline_w": args.outline_w, "uppercase": args.uppercase}
+    props = resolve_style(style, cfg, cli)
+
+    # font: name vs .ttf/.otf path
+    font_dir = None
+    fval = props.get("font") or ""
+    fp = Path(fval)
+    if fval and fp.suffix.lower() in (".ttf", ".otf") and fp.exists():
+        font_dir = fp.parent
+        props["font"] = fp.stem
 
     rc.require_tool("ffmpeg")
     tw = int(cfg["reframe"]["width"])
@@ -211,8 +393,8 @@ def main():
             rc.die("clip %d not found." % args.clip)
 
     rc.CAPTIONED_DIR.mkdir(parents=True, exist_ok=True)
-    rc.log("Burning captions  style=%d  clips=%d  (srt=%s)"
-           % (style, len(verticals), srt.name))
+    rc.log("Burning captions  style=%d (%s)  clips=%d  (srt=%s)"
+           % (style, props["name"], len(verticals), srt.name))
 
     ok = 0
     for clip in verticals:
@@ -222,8 +404,6 @@ def main():
             rc.log("   WARNING: no time range for clip %02d, skipping." % idx)
             continue
         cues = window_cues(cues_all, rng["start"], rng["end"])
-        if style == 4:
-            cues = split_words(cues)
         out_path = rc.CAPTIONED_DIR / clip.name
         if not cues:
             rc.log("-> clip %02d  no cues in window, copying as-is." % idx)
@@ -232,7 +412,14 @@ def main():
             ok += 1
             continue
 
-        ass_text = build_ass(cues, style, font_name, tw, th)
+        mode = props.get("mode", "line")
+        if mode == "karaoke":
+            ass_text = build_ass_karaoke(cues, props, tw, th)
+        else:
+            if mode == "word":
+                cues = split_words(cues)
+            ass_text = build_ass(cues, props, tw, th)
+
         with tempfile.NamedTemporaryFile("w", suffix=".ass", delete=False,
                                          encoding="utf-8") as tf:
             tf.write(ass_text)

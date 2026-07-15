@@ -36,7 +36,7 @@ def probe(clip):
     """Return (width, height, duration_seconds) via ffprobe."""
     rc.require_tool("ffprobe")
     cmd = [
-        "ffprobe", "-v", "error",
+        rc.which("ffprobe") or "ffprobe", "-v", "error",
         "-select_streams", "v:0",
         "-show_entries", "stream=width,height",
         "-show_entries", "format=duration",
@@ -92,22 +92,101 @@ def load_speakers():
         return json.load(fh)
 
 
-def podcast_timeline(dur, cfg, sw, crop_w, pd, sd):
-    spk = load_speakers()["speakers"]
-    prim = cfg["reframe"]["primary_speaker"]
-    sec = cfg["reframe"]["secondary_speaker"]
-
-    def xfor(name):
-        frac = spk.get(name, {}).get("x", 0.5)
-        return frac_to_x(frac, sw, crop_w)
-
+def alternating_timeline(dur, primary_x, secondary_x, pd, sd):
+    """Rotate the crop between two x positions using the configured durations."""
     segs, t, on_primary = [], 0.0, True
     while t < dur:
-        name = prim if on_primary else sec
-        segs.append((round(t, 3), xfor(name)))
+        segs.append((round(t, 3), primary_x if on_primary else secondary_x))
         t += pd if on_primary else sd
         on_primary = not on_primary
-    return segs or [(0.0, frac_to_x(0.5, sw, crop_w))]
+    return segs or [(0.0, primary_x)]
+
+
+def face_cascade():
+    """Haar face cascade from whichever cv2 layout is present, else None.
+
+    cv2.CascadeClassifier is top-level in OpenCV 4.x; OpenCV 5.0 moved it under
+    cv2.objdetect. Returns None if unavailable so callers fall back to center crop.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return None
+    cls = getattr(cv2, "CascadeClassifier", None)
+    if cls is None:
+        cls = getattr(getattr(cv2, "objdetect", None), "CascadeClassifier", None)
+    if cls is None or not hasattr(cv2, "data"):
+        return None
+    cascade = cls(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    return cascade if not cascade.empty() else None
+
+
+def collect_face_xfracs(clip, cfg):
+    """Sample the clip and return every detected face's x-center as a 0..1 frac."""
+    try:
+        import cv2
+    except ImportError:
+        return []
+    cascade = face_cascade()
+    if cascade is None:
+        return []
+    cap = cv2.VideoCapture(str(clip))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    step = max(1, int(round(fps / max(1, int(cfg["reframe"].get("sample_fps", 3))))))
+    fracs, idx = [], 0
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if idx % step == 0:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = cascade.detectMultiScale(gray, 1.2, 5, minSize=(60, 60))
+            w = float(frame.shape[1])
+            for fx, _, fw, _ in faces:
+                fracs.append((fx + fw / 2.0) / w)
+        idx += 1
+    cap.release()
+    return fracs
+
+
+def two_clusters(fracs, min_sep=0.08):
+    """1-D 2-means on face x-fractions -> two sorted centers, or None."""
+    if len(fracs) < 6:
+        return None
+    xs = sorted(fracs)
+    c0, c1 = xs[0], xs[-1]
+    if c1 - c0 < min_sep:
+        return None
+    for _ in range(12):
+        g0 = [x for x in xs if abs(x - c0) <= abs(x - c1)]
+        g1 = [x for x in xs if abs(x - c0) > abs(x - c1)]
+        if not g0 or not g1:
+            break
+        n0, n1 = sum(g0) / len(g0), sum(g1) / len(g1)
+        if abs(n0 - c0) < 1e-4 and abs(n1 - c1) < 1e-4:
+            c0, c1 = n0, n1
+            break
+        c0, c1 = n0, n1
+    if abs(c1 - c0) < min_sep:
+        return None
+    return sorted([c0, c1])
+
+
+def calibrate_podcast(clip, cfg, sw, crop_w):
+    """Return (primary_x, secondary_x) in pixels.
+
+    Auto-detects the two speakers from the clip (default). Falls back to
+    speakers.json fractions when detection fails or is disabled.
+    """
+    spk = load_speakers()["speakers"]
+    pf = spk.get(cfg["reframe"]["primary_speaker"], {}).get("x", 0.33)
+    sf = spk.get(cfg["reframe"]["secondary_speaker"], {}).get("x", 0.67)
+
+    if cfg["reframe"].get("podcast_calibrate", True):
+        clusters = two_clusters(collect_face_xfracs(clip, cfg))
+        if clusters:
+            pf, sf = clusters            # left = primary, right = secondary
+    return frac_to_x(pf, sw, crop_w), frac_to_x(sf, sw, crop_w)
 
 
 def timeline_from_csv(clip_start, clip_end, sw, crop_w):
@@ -151,8 +230,10 @@ def general_timeline(clip, cfg, sw, sh, crop_w):
                "Run setup to enable face tracking.")
         return [(0.0, frac_to_x(0.5, sw, crop_w))]
 
-    cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    cascade = face_cascade()
+    if cascade is None:
+        rc.log("WARNING: OpenCV face detector unavailable - using center crop.")
+        return [(0.0, frac_to_x(0.5, sw, crop_w))]
     cap = cv2.VideoCapture(str(clip))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     step = max(1, int(round(fps / max(1, int(rf.get("sample_fps", 3))))))
@@ -271,9 +352,11 @@ def main():
             if r:
                 segs = timeline_from_csv(r["start"], r["end"], sw, crop_w)
             else:
-                segs = podcast_timeline(dur, cfg, sw, crop_w, pd, sd)
+                px, sx = calibrate_podcast(clip, cfg, sw, crop_w)
+                segs = alternating_timeline(dur, px, sx, pd, sd)
         elif mode == "podcast":
-            segs = podcast_timeline(dur, cfg, sw, crop_w, pd, sd)
+            px, sx = calibrate_podcast(clip, cfg, sw, crop_w)
+            segs = alternating_timeline(dur, px, sx, pd, sd)
         else:
             segs = general_timeline(clip, cfg, sw, sh, crop_w)
 

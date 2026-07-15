@@ -11,12 +11,13 @@
 python 3_download/download_video.py "YOUTUBE_URL"
 ```
 
-The helper downloads with `yt-dlp`, merges best video+audio to a single `.mp4` in `3_download/downloads/`.
+The helper downloads with `yt-dlp`, merges best video+audio to a single `.mp4` in `3_download/downloads/`. It **auto-retries YouTube's bot gate** with alternate `--extractor-args youtube:player_client=...` clients if the default is blocked.
 
 ## Manual fallback
 ```bash
 yt-dlp -f "bv*[height<=1080]+ba/b[height<=1080]/bv*[height<=720]+ba/b[height<=720]" --merge-output-format mp4 -o "3_download/downloads/%(title).120B [%(id)s].%(ext)s" "YOUTUBE_URL"
 ```
+If blocked by the bot gate, add: `--extractor-args "youtube:player_client=android"` (or `tv_embedded,android`).
 
 ## Required output
 - Exactly one `.mp4` in `3_download/downloads/`.
