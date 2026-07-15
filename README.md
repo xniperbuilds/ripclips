@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="RipClips — turn long YouTube videos into viral vertical captioned clips for TikTok, Shorts, and Reels" width="100%">
+</p>
+
 # RipClips — Turn Long YouTube Videos into Viral Vertical Clips
 
 **RipClips** is an agent-driven pipeline that repurposes long-form YouTube videos into short, vertical, captioned clips ready for **TikTok, YouTube Shorts, and Instagram Reels** — automatically. Paste a YouTube link into your AI coding agent (Claude Code, Codex, Cursor) and RipClips runs the whole flow: transcript → best-moment detection → download → cut → vertical reframe → burned-in captions.
