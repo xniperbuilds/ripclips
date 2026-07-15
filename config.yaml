@@ -1,0 +1,39 @@
+# =====================================================================
+# RipClips configuration  -  edit this file to change defaults
+# =====================================================================
+
+# Pipeline mode:
+#   podcast  -> two-speaker interviews; camera rotates between host/guest
+#   general  -> any long-form video; auto face-tracking (or center crop)
+mode: podcast
+
+# Subtitle / transcript language (yt-dlp sub-langs)
+language: en
+
+download:
+  max_height: 1080        # preferred quality; falls back to 720 automatically
+  format: mp4
+
+clip:
+  encode_mode: reencode   # reencode (accurate) | copy (fastest, keyframe-snapped)
+  min_seconds: 8          # guidance for step 2 (analysis)
+  max_seconds: 90
+
+reframe:
+  width: 1080             # vertical output width
+  height: 1920            # vertical output height (9:16)
+
+  # ---- podcast mode ----
+  primary_speaker: guest
+  secondary_speaker: host
+  primary_duration: "3-4"   # seconds focused on primary before switching
+  secondary_duration: "2-3" # seconds focused on secondary before switching
+
+  # ---- general mode ----
+  detector: opencv        # opencv (auto face-track) | center (fixed center crop)
+  smoothing: 0.85         # 0..1  higher = smoother/slower camera moves
+  sample_fps: 3           # frames per second sampled for face detection
+
+captions:
+  default_style: 1        # 1 TikTok Classic | 2 Word Pop | 3 Podcast Modern | 4 Word-by-Word
+  font: ""                # optional: absolute path to a .ttf/.otf font

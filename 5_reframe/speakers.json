@@ -1,0 +1,8 @@
+{
+  "default_speaker": "guest",
+  "speakers": {
+    "guest": { "x": 0.33 },
+    "host":  { "x": 0.67 }
+  },
+  "_note": "x is the horizontal crop CENTER as a fraction of video width (0=left, 1=right). Tune per source video so each speaker is framed nicely."
+}

@@ -1,0 +1,28 @@
+# ---- generated pipeline outputs ----
+1_transcript/*.srt
+1_transcript/*.vtt
+2_analysis/clip_durations.txt
+3_download/downloads/*
+4_clip/clips/*
+5_reframe/vertical_clips/*
+6_captions/captioned_clips/*
+
+# keep the empty output folders in git
+!3_download/downloads/.gitkeep
+!4_clip/clips/.gitkeep
+!5_reframe/vertical_clips/.gitkeep
+!6_captions/captioned_clips/.gitkeep
+
+# ---- python ----
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# ---- os / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

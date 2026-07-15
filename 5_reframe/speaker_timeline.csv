@@ -1,0 +1,5 @@
+# Optional manual timeline (podcast mode, --focus-mode timeline).
+# Use ABSOLUTE timestamps from the ORIGINAL source video.
+# Speaker names must match speakers.json. Uncovered gaps use default_speaker.
+# Delete these comment lines or leave them - they are ignored.
+start,end,speaker
